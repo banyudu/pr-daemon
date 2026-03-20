@@ -1,0 +1,31 @@
+name: PRDaemon
+options:
+  bundleIdPrefix: com.banyudu
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.0"
+  generateEmptyDirectories: true
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+targets:
+  PRDaemon:
+    type: application
+    platform: macOS
+    sources:
+      - PRDaemon
+    settings:
+      base:
+        INFOPLIST_FILE: PRDaemon/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.banyudu.pr-daemon
+        PRODUCT_NAME: PR Daemon
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGNING_ALLOWED: "NO"
+    postBuildScripts:
+      - name: Ad-hoc Sign
+        script: |
+          codesign --force --sign - "$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME"
