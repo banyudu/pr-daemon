@@ -194,6 +194,28 @@ struct PullRequest: Identifiable, Codable {
 
     var unresolvedAIThreadCount: Int { unresolvedThreads.count }
 
+    /// Best (highest) Greptile confidence score across all comments (top-level + review threads).
+    var greptileConfidence: Double? {
+        var best: Double?
+        // Check top-level PR comments (where Greptile posts its summary)
+        for comment in latestComments where comment.author == AIReviewer.greptile.rawValue {
+            if let meta = AIReviewParser.parseMetadata(author: comment.author, body: comment.body),
+               let conf = meta.confidence {
+                if best == nil || conf > best! { best = conf }
+            }
+        }
+        // Also check review thread comments
+        for thread in reviewThreads {
+            for comment in thread.comments where comment.author == AIReviewer.greptile.rawValue {
+                if let meta = AIReviewParser.parseMetadata(author: comment.author, body: comment.body),
+                   let conf = meta.confidence {
+                    if best == nil || conf > best! { best = conf }
+                }
+            }
+        }
+        return best
+    }
+
     var aiReviews: [PRReview] {
         reviews.filter { AIReviewer.isAIReviewer($0.author) }
     }

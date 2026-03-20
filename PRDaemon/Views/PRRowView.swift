@@ -50,6 +50,16 @@ struct PRRowView: View {
                         .foregroundStyle(.orange)
                     }
 
+                    if let confidence = pr.greptileConfidence {
+                        Text("\(Int(confidence * 100))%")
+                            .font(.system(size: 9, weight: .medium))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(.blue.opacity(0.1))
+                            .foregroundStyle(.blue)
+                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                    }
+
                     Spacer()
 
                     Text(pr.updatedAt, style: .relative)

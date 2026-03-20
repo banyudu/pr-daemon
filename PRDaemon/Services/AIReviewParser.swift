@@ -14,8 +14,8 @@ enum AIReviewParser {
     private static func parseConfidence(body: String, reviewer: AIReviewer?) -> Double? {
         switch reviewer {
         case .greptile:
-            // Greptile: "Confidence: 4/5" or "confidence: 3/5"
-            if let match = body.range(of: #"[Cc]onfidence:\s*(\d+)/(\d+)"#, options: .regularExpression) {
+            // Greptile: "Confidence Score: 4/5" or "Confidence: 3/5"
+            if let match = body.range(of: #"[Cc]onfidence(?:\s+[Ss]core)?:\s*(\d+)/(\d+)"#, options: .regularExpression) {
                 let text = String(body[match])
                 let digits = text.filter(\.isNumber)
                 if digits.count >= 2 {
