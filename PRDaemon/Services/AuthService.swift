@@ -64,7 +64,7 @@ class AuthService: ObservableObject {
         return login
     }
 
-    static func isGHInstalled() -> Bool {
+    nonisolated static func isGHInstalled() -> Bool {
         for path in ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"] {
             if FileManager.default.fileExists(atPath: path) { return true }
         }
@@ -78,14 +78,14 @@ class AuthService: ObservableObject {
         return false
     }
 
-    static func brewPath() -> String {
+    nonisolated static func brewPath() -> String {
         if FileManager.default.fileExists(atPath: "/opt/homebrew/bin/brew") {
             return "/opt/homebrew/bin/brew"
         }
         return "/usr/local/bin/brew"
     }
 
-    static func getGHToken() -> String? {
+    nonisolated static func getGHToken() -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/gh")
         process.arguments = ["auth", "token"]
