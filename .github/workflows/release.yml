@@ -182,11 +182,26 @@ jobs:
         run: |
           DMG_NAME="PRDaemon-${VERSION}.dmg"
 
-          xcrun notarytool submit "$DMG_NAME" \
+          SUBMIT_OUTPUT=$(xcrun notarytool submit "$DMG_NAME" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
-            --wait
+            --wait 2>&1) || true
+
+          echo "$SUBMIT_OUTPUT"
+
+          SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | awk '/^  id:/{print $2; exit}')
+
+          if echo "$SUBMIT_OUTPUT" | grep -q "status: Invalid"; then
+            echo "--- Fetching notarization log ---"
+            xcrun notarytool log "$SUBMISSION_ID" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              developer_log.json || true
+            cat developer_log.json || true
+            exit 1
+          fi
 
           xcrun stapler staple "$DMG_NAME"
 
