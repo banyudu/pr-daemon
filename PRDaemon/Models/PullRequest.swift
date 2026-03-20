@@ -81,9 +81,58 @@ struct PullRequest: Identifiable, Codable {
     let overallReviewState: ReviewState
 
     var needsAttention: Bool {
-        overallCheckStatus == .failure ||
-        overallReviewState == .changesRequested ||
-        commentCount > 0
+        filteredCheckStatus == .failure ||
+        filteredReviewState == .changesRequested ||
+        filteredCommentCount > 0
+    }
+
+    // MARK: - Filtered by ignored reviewers
+
+    private var ignoredReviewers: Set<String> {
+        AppSettings.load().ignoredReviewers
+    }
+
+    var filteredChecks: [PRCheck] {
+        let ignored = ignoredReviewers
+        if ignored.isEmpty { return checks }
+        return checks.filter { check in
+            !ignored.contains(where: { check.name.localizedCaseInsensitiveContains($0) })
+        }
+    }
+
+    var filteredReviews: [PRReview] {
+        let ignored = ignoredReviewers
+        if ignored.isEmpty { return reviews }
+        return reviews.filter { !ignored.contains($0.author) }
+    }
+
+    var filteredComments: [PRComment] {
+        let ignored = ignoredReviewers
+        if ignored.isEmpty { return latestComments }
+        return latestComments.filter { !ignored.contains($0.author) }
+    }
+
+    var filteredCommentCount: Int {
+        let ignored = ignoredReviewers
+        if ignored.isEmpty { return commentCount }
+        return commentCount - latestComments.filter { ignored.contains($0.author) }.count
+    }
+
+    var filteredCheckStatus: CheckStatus {
+        let checks = filteredChecks
+        if checks.isEmpty { return .pending }
+        if checks.contains(where: { $0.status == .failure }) { return .failure }
+        if checks.contains(where: { $0.status == .running }) { return .running }
+        if checks.allSatisfy({ $0.status == .success || $0.status == .neutral }) { return .success }
+        return .pending
+    }
+
+    var filteredReviewState: ReviewState {
+        let reviews = filteredReviews
+        if reviews.isEmpty { return overallReviewState }
+        if reviews.contains(where: { $0.state == .changesRequested }) { return .changesRequested }
+        if reviews.contains(where: { $0.state == .approved }) { return .approved }
+        return overallReviewState
     }
 }
 

@@ -4,9 +4,11 @@ import UserNotifications
 @MainActor
 class PollingService: ObservableObject {
     @Published var pullRequests: [PullRequest] = []
+    @Published var allRepos: Set<String> = []
     @Published var isLoading = false
     @Published var error: String?
     @Published var lastFetched: Date?
+    @Published var isPaused = false
 
     private var snapshots: [String: PRSnapshot] = [:]
     private var pollingTask: Task<Void, Never>?
@@ -33,6 +35,15 @@ class PollingService: ObservableObject {
         pollingTask = nil
     }
 
+    func togglePause() {
+        isPaused.toggle()
+        if isPaused {
+            stopPolling()
+        } else {
+            startPolling()
+        }
+    }
+
     func fetchPRs() async {
         guard let token = authService.token else { return }
 
@@ -43,14 +54,21 @@ class PollingService: ObservableObject {
         do {
             let prs = try await client.fetchMyPRs()
 
+            // Track all repos before filtering
+            allRepos = Set(prs.map { $0.repo })
+
+            // Filter out unwatched repos
+            let settings = AppSettings.load()
+            let filtered = prs.filter { !settings.unwatchedRepos.contains($0.repo) }
+
             // Detect changes and notify
-            let changes = detectChanges(newPRs: prs)
+            let changes = detectChanges(newPRs: filtered)
             if !changes.isEmpty {
                 sendNotifications(changes: changes)
             }
 
             // Update snapshots
-            snapshots = Dictionary(uniqueKeysWithValues: prs.map { pr in
+            snapshots = Dictionary(uniqueKeysWithValues: filtered.map { pr in
                 (pr.id, PRSnapshot(
                     checkStatus: pr.overallCheckStatus,
                     reviewState: pr.overallReviewState,
@@ -58,7 +76,7 @@ class PollingService: ObservableObject {
                 ))
             })
 
-            pullRequests = prs
+            pullRequests = filtered
             lastFetched = .now
             isLoading = false
         } catch {

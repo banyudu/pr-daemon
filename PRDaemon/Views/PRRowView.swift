@@ -30,11 +30,11 @@ struct PRRowView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 3))
                     }
 
-                    if pr.commentCount > 0 {
+                    if pr.filteredCommentCount > 0 {
                         HStack(spacing: 2) {
                             Image(systemName: "bubble.left")
                                 .font(.system(size: 9))
-                            Text("\(pr.commentCount)")
+                            Text("\(pr.filteredCommentCount)")
                                 .font(.system(size: 10))
                         }
                         .foregroundStyle(.secondary)
@@ -49,8 +49,8 @@ struct PRRowView: View {
             }
 
             VStack(alignment: .trailing, spacing: 3) {
-                StatusBadge(status: pr.overallCheckStatus)
-                ReviewBadge(state: pr.overallReviewState)
+                StatusBadge(status: pr.filteredCheckStatus)
+                ReviewBadge(state: pr.filteredReviewState)
             }
             .padding(.top, 2)
         }

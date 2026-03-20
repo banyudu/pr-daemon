@@ -80,12 +80,28 @@ struct MainView: View {
             .buttonStyle(.borderless)
             .help("Refresh")
 
+            Button(action: {
+                pollingService.togglePause()
+            }) {
+                Image(systemName: pollingService.isPaused ? "play.fill" : "pause.fill")
+                    .font(.system(size: 11))
+            }
+            .buttonStyle(.borderless)
+            .help(pollingService.isPaused ? "Resume polling" : "Pause polling")
+
             Button(action: { showSettings = true }) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 11))
             }
             .buttonStyle(.borderless)
             .help("Settings")
+
+            Button(action: { NSApplication.shared.terminate(nil) }) {
+                Image(systemName: "xmark.circle")
+                    .font(.system(size: 11))
+            }
+            .buttonStyle(.borderless)
+            .help("Quit")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
