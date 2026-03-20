@@ -116,6 +116,7 @@ struct AuthView: View {
         installOutput = ""
 
         Task.detached {
+            let brewPath = await AuthService.brewPath()
             let process = Process()
             let pipe = Pipe()
             process.standardOutput = pipe
@@ -123,7 +124,7 @@ struct AuthView: View {
 
             switch method {
             case .brew:
-                process.executableURL = URL(fileURLWithPath: AuthService.brewPath())
+                process.executableURL = URL(fileURLWithPath: brewPath)
                 process.arguments = ["install", "gh"]
             case .script:
                 // GitHub's official install script via conda-forge/gh releases
