@@ -154,6 +154,27 @@ jobs:
             CODE_SIGNING_ALLOWED=YES \
             PRODUCT_BUNDLE_IDENTIFIER=$BUNDLE_ID
 
+      - name: Deep Sign App Bundle
+        env:
+          SIGN_IDENTITY: ${{ secrets.CODE_SIGN_IDENTITY }}
+        run: |
+          APP_PATH="DerivedData/Build/Products/Release/${APP_NAME}.app"
+
+          # Sign all Sparkle framework binaries (Updater, Downloader, Installer)
+          find "$APP_PATH/Contents/Frameworks/Sparkle.framework" -type f -perm +111 | while read binary; do
+            file "$binary" | grep -q "Mach-O" && \
+              codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$binary"
+          done
+
+          # Re-sign the Sparkle framework itself
+          codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
+            "$APP_PATH/Contents/Frameworks/Sparkle.framework"
+
+          # Re-sign the main app bundle
+          codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" \
+            --entitlements PRDaemon/PRDaemon.entitlements \
+            "$APP_PATH"
+
       - name: Create DMG
         env:
           SIGN_IDENTITY: ${{ secrets.CODE_SIGN_IDENTITY }}
