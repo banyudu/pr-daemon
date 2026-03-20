@@ -246,37 +246,7 @@ jobs:
           ED_SIGNATURE: ${{ steps.sparkle_sign.outputs.signature }}
           DMG_SIZE: ${{ steps.sparkle_sign.outputs.size }}
         run: |
-          DMG_URL="https://github.com/banyudu/pr-daemon/releases/download/v${VERSION}/PRDaemon-${VERSION}.dmg"
-          PUB_DATE=$(date -u +"%a, %d %b %Y %H:%M:%S %z")
-
-          NEW_ITEM="            <item>
-                <title>Version ${VERSION}</title>
-                <sparkle:version>${BUILD_NUMBER}</sparkle:version>
-                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
-                <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-                <pubDate>${PUB_DATE}</pubDate>
-                <enclosure url=\"${DMG_URL}\" sparkle:edSignature=\"${ED_SIGNATURE}\" length=\"${DMG_SIZE}\" type=\"application/octet-stream\"/>
-            </item>"
-
-          if [ -f appcast.xml ]; then
-            # Insert new item before the closing </channel> tag
-            ESCAPED_ITEM=$(printf '%s\n' "$NEW_ITEM" | sed 's/[&/\]/\\&/g')
-            sed -i '' "s|        </channel>|${NEW_ITEM}\n        </channel>|" appcast.xml
-          else
-            cat > appcast.xml << APPCAST_EOF
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <channel>
-        <title>PR Daemon</title>
-        <link>https://github.com/banyudu/pr-daemon</link>
-        <description>PR Daemon updates</description>
-        <language>en</language>
-${NEW_ITEM}
-        </channel>
-</rss>
-APPCAST_EOF
-          fi
-
+          ./scripts/update-appcast.sh
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add appcast.xml

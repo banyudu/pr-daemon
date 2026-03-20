@@ -15,11 +15,6 @@ build/
 *.dSYM
 
 # Editor
-.vscode/*
-!.vscode/extensions.json
+.vscode
 .idea
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
 *.sw?
