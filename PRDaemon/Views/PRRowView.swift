@@ -51,13 +51,11 @@ struct PRRowView: View {
                     }
 
                     if let confidence = pr.greptileConfidence {
-                        Text("\(Int(confidence * 100))%")
-                            .font(.system(size: 9, weight: .medium))
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(.blue.opacity(0.1))
-                            .foregroundStyle(.blue)
-                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                        let filled = Int(round(confidence * 5))
+                        let stars = String(repeating: "★", count: filled) + String(repeating: "☆", count: 5 - filled)
+                        Text(stars)
+                            .font(.system(size: 9))
+                            .foregroundStyle(.orange)
                     }
 
                     Spacer()
