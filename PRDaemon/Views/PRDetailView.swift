@@ -243,7 +243,7 @@ struct PRDetailView: View {
                     }
                 }
 
-                Text(comment.body)
+                Text(Self.stripHTML(comment.body))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
@@ -263,6 +263,7 @@ struct PRDetailView: View {
                     }
                     .buttonStyle(.borderless)
                     .font(.system(size: 11))
+                    .foregroundStyle(.purple)
                     .disabled(fixingThreads.contains(thread.id))
 
                     Button {
@@ -276,6 +277,7 @@ struct PRDetailView: View {
                     }
                     .buttonStyle(.borderless)
                     .font(.system(size: 11))
+                    .foregroundStyle(.green)
                     .disabled(resolvingThreads.contains(thread.id))
                 }
             }
@@ -349,7 +351,7 @@ struct PRDetailView: View {
                             .font(.system(size: 10))
                             .foregroundStyle(.tertiary)
                     }
-                    Text(comment.body)
+                    Text(Self.stripHTML(comment.body))
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .lineLimit(3)
@@ -419,6 +421,17 @@ struct PRDetailView: View {
             _ = await QuickActionService.runClaudeYolo(repoPath: repoPath, prompt: prompt)
             yoloRunning = false
         }
+    }
+
+    nonisolated static func stripHTML(_ string: String) -> String {
+        string.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func buildContext() -> String {

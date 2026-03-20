@@ -7,6 +7,7 @@ struct MainView: View {
     @State private var filter: PRFilter = .all
     @State private var selectedPR: PullRequest?
     @State private var showSettings = false
+    @Environment(\.scenePhase) private var scenePhase
 
     enum PRFilter: String, CaseIterable {
         case all = "All"
@@ -47,6 +48,12 @@ struct MainView: View {
                 headerBar
                 searchBar
                 prList
+            }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                selectedPR = nil
+                showSettings = false
             }
         }
     }
