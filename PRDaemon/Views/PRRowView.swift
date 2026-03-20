@@ -8,7 +8,7 @@ struct PRRowView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(pr.repo)
                     .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
 
                 Text("#\(pr.number) \(pr.title)")
@@ -26,9 +26,11 @@ struct PRRowView: View {
                             .font(.system(size: 9, weight: .medium))
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
-                            .background(.quaternary)
+                            .background(.tertiary)
                             .clipShape(RoundedRectangle(cornerRadius: 3))
                     }
+
+                    Spacer()
 
                     if pr.filteredCommentCount > 0 {
                         HStack(spacing: 2) {
@@ -58,11 +60,9 @@ struct PRRowView: View {
                             .foregroundStyle(.orange)
                     }
 
-                    Spacer()
-
                     Text(pr.updatedAt, style: .relative)
                         .font(.system(size: 10))
-                        .foregroundStyle(.quaternary)
+                        .foregroundStyle(.tertiary)
                 }
             }
 

@@ -68,7 +68,7 @@ struct MainView: View {
                 if let username = authService.username {
                     Text("@\(username)")
                         .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -77,7 +77,7 @@ struct MainView: View {
             if let lastFetched = pollingService.lastFetched {
                 Text(lastFetched, style: .relative)
                     .font(.system(size: 10))
-                    .foregroundStyle(.quaternary)
+                    .foregroundStyle(.tertiary)
             }
 
             Button(action: { Task { await pollingService.fetchPRs() } }) {
