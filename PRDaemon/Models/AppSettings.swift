@@ -121,6 +121,8 @@ struct AppSettings: Codable, Equatable {
     var unwatchedRepos: Set<String> = []
     var ignoredReviewers: Set<String> = []
     var localRepoPaths: [String: String] = [:]
+    var autoFixAIReviews: Bool = false
+    var knownAIReviewers: Set<String> = Set(AIReviewer.allCases.map(\.rawValue))
 
     var effectiveCommand: String {
         switch agentCommandOption {
@@ -180,6 +182,8 @@ struct AppSettings: Codable, Equatable {
         customWorktreeDirectory = try container.decodeIfPresent(String.self, forKey: .customWorktreeDirectory) ?? ""
         unwatchedRepos = try container.decodeIfPresent(Set<String>.self, forKey: .unwatchedRepos) ?? []
         ignoredReviewers = try container.decodeIfPresent(Set<String>.self, forKey: .ignoredReviewers) ?? []
+        autoFixAIReviews = try container.decodeIfPresent(Bool.self, forKey: .autoFixAIReviews) ?? false
+        knownAIReviewers = try container.decodeIfPresent(Set<String>.self, forKey: .knownAIReviewers) ?? Set(AIReviewer.allCases.map(\.rawValue))
     }
 
     init() {}

@@ -13,6 +13,7 @@ class PollingService: ObservableObject {
     private var snapshots: [String: PRSnapshot] = [:]
     private var pollingTask: Task<Void, Never>?
     private let authService: AuthService
+    var autoFixService: AutoFixService?
 
     init(authService: AuthService) {
         self.authService = authService
@@ -67,12 +68,19 @@ class PollingService: ObservableObject {
                 sendNotifications(changes: changes)
             }
 
+            // Auto-fix AI reviews if enabled
+            let oldPRs = pullRequests
+            if let autoFix = autoFixService {
+                await autoFix.processNewAIThreads(old: oldPRs, new: filtered)
+            }
+
             // Update snapshots
             snapshots = Dictionary(uniqueKeysWithValues: filtered.map { pr in
                 (pr.id, PRSnapshot(
                     checkStatus: pr.overallCheckStatus,
                     reviewState: pr.overallReviewState,
-                    commentCount: pr.commentCount
+                    commentCount: pr.commentCount,
+                    unresolvedThreadIds: Set(pr.unresolvedThreads.map(\.id))
                 ))
             })
 
@@ -129,6 +137,17 @@ class PollingService: ObservableObject {
                     ))
                 }
             }
+
+            // AI review thread changes
+            let currentUnresolved = Set(pr.unresolvedThreads.map(\.id))
+            let newThreads = currentUnresolved.subtracting(prev.unresolvedThreadIds)
+            if !newThreads.isEmpty {
+                changes.append(PRChange(
+                    prNumber: pr.number, prTitle: pr.title, repo: pr.repo,
+                    changeType: "ai_review",
+                    message: "\(newThreads.count) new AI review comment\(newThreads.count > 1 ? "s" : "")"
+                ))
+            }
         }
 
         return changes
@@ -142,7 +161,7 @@ class PollingService: ObservableObject {
             let shouldNotify = switch change.changeType {
             case "comment": settings.notifyOnNewComments
             case "check": settings.notifyOnCheckComplete
-            case "review": settings.notifyOnReviewSubmitted
+            case "review", "ai_review": settings.notifyOnReviewSubmitted
             default: true
             }
             guard shouldNotify else { continue }

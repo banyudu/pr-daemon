@@ -66,6 +66,7 @@ class GitHubClient {
         let checks = parseChecks(node["commits"] as? [String: Any])
         let overallCheckStatus = parseOverallCheckStatus(node["commits"] as? [String: Any])
         let overallReviewState = parseReviewDecision(node["reviewDecision"] as? String)
+        let reviewThreads = parseReviewThreads(node["reviewThreads"] as? [String: Any])
 
         guard stateStr == "OPEN" || stateStr == "MERGED" || stateStr == "CLOSED" else { return nil }
 
@@ -78,7 +79,8 @@ class GitHubClient {
             checks: checks, reviews: reviews,
             commentCount: commentCount, latestComments: latestComments,
             overallCheckStatus: overallCheckStatus,
-            overallReviewState: overallReviewState
+            overallReviewState: overallReviewState,
+            reviewThreads: reviewThreads
         )
     }
 
@@ -95,6 +97,7 @@ class GitHubClient {
             let author = (node["author"] as? [String: Any])?["login"] as? String ?? ""
             let stateStr = node["state"] as? String ?? ""
             let submittedAt = node["submittedAt"] as? String ?? ""
+            let body = node["body"] as? String
             let state: ReviewState = switch stateStr {
             case "APPROVED": .approved
             case "CHANGES_REQUESTED": .changesRequested
@@ -102,7 +105,29 @@ class GitHubClient {
             case "DISMISSED": .dismissed
             default: .pending
             }
-            return PRReview(author: author, state: state, submittedAt: submittedAt)
+            return PRReview(author: author, state: state, submittedAt: submittedAt, body: body)
+        }
+    }
+
+    private static func parseReviewThreads(_ data: [String: Any]?) -> [ReviewThread] {
+        guard let nodes = data?["nodes"] as? [[String: Any]] else { return [] }
+        return nodes.compactMap { node in
+            guard let id = node["id"] as? String else { return nil }
+            let isResolved = node["isResolved"] as? Bool ?? false
+            let path = node["path"] as? String
+            let line = node["line"] as? Int
+            let commentsData = node["comments"] as? [String: Any]
+            let commentNodes = commentsData?["nodes"] as? [[String: Any]] ?? []
+            let comments = commentNodes.compactMap { cNode -> ReviewComment? in
+                guard let cId = cNode["id"] as? String,
+                      let body = cNode["body"] as? String,
+                      let url = cNode["url"] as? String
+                else { return nil }
+                let author = (cNode["author"] as? [String: Any])?["login"] as? String ?? ""
+                let createdAt = parseDate(cNode["createdAt"] as? String)
+                return ReviewComment(id: cId, author: author, body: body, createdAt: createdAt, url: url)
+            }
+            return ReviewThread(id: id, isResolved: isResolved, path: path, line: line, comments: comments)
         }
     }
 
@@ -197,6 +222,41 @@ class GitHubClient {
         }
     }
 
+    // MARK: - Mutations
+
+    func resolveReviewThread(threadId: String) async throws {
+        let mutation = """
+        mutation($threadId: ID!) {
+          resolveReviewThread(input: { threadId: $threadId }) {
+            thread { id isResolved }
+          }
+        }
+        """
+        let body: [String: Any] = [
+            "query": mutation,
+            "variables": ["threadId": threadId],
+        ]
+
+        var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("pr-daemon", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            let text = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw GitHubError.apiError(text)
+        }
+
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        if let errors = json?["errors"] as? [[String: Any]] {
+            let messages = errors.compactMap { $0["message"] as? String }
+            throw GitHubError.graphQLError(messages.joined(separator: ", "))
+        }
+    }
+
     // MARK: - GraphQL Query
 
     static let graphQLQuery = """
@@ -217,7 +277,24 @@ class GitHubClient {
             baseRefName
             reviewDecision
             reviews(last: 10) {
-              nodes { author { login } state submittedAt }
+              nodes { author { login } state submittedAt body }
+            }
+            reviewThreads(last: 30) {
+              nodes {
+                id
+                isResolved
+                path
+                line
+                comments(last: 5) {
+                  nodes {
+                    id
+                    author { login }
+                    body
+                    createdAt
+                    url
+                  }
+                }
+              }
             }
             comments(last: 5) {
               totalCount

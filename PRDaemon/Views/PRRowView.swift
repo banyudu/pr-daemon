@@ -40,6 +40,16 @@ struct PRRowView: View {
                         .foregroundStyle(.secondary)
                     }
 
+                    if pr.unresolvedAIThreadCount > 0 {
+                        HStack(spacing: 2) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .font(.system(size: 9))
+                            Text("\(pr.unresolvedAIThreadCount)")
+                                .font(.system(size: 10))
+                        }
+                        .foregroundStyle(.orange)
+                    }
+
                     Spacer()
 
                     Text(pr.updatedAt, style: .relative)

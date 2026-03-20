@@ -4,7 +4,10 @@ struct PRDetailView: View {
     let pr: PullRequest
     let onBack: () -> Void
     @State private var yoloRunning = false
+    @State private var resolvingThreads: Set<String> = []
+    @State private var fixingThreads: Set<String> = []
     @State private var settings = AppSettings.load()
+    @EnvironmentObject var authService: AuthService
 
     var body: some View {
         VStack(spacing: 0) {
@@ -43,6 +46,7 @@ struct PRDetailView: View {
                     statusSection
                     if !pr.filteredChecks.isEmpty { checksSection }
                     if !pr.filteredReviews.isEmpty { reviewsSection }
+                    if !pr.reviewThreads.isEmpty { aiReviewsSection }
                     if !pr.filteredComments.isEmpty { commentsSection }
                     quickActionsSection
                 }
@@ -168,6 +172,158 @@ struct PRDetailView: View {
             .background(.background)
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+        }
+    }
+
+    private var aiReviewsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            let unresolved = pr.unresolvedThreads
+            let resolved = pr.reviewThreads.filter { thread in
+                thread.isResolved && thread.comments.contains { AIReviewer.isAIReviewer($0.author) }
+            }
+            sectionHeader("AI Reviews (\(unresolved.count) unresolved)")
+
+            ForEach(unresolved) { thread in
+                aiThreadCard(thread: thread, dimmed: false)
+            }
+
+            if !resolved.isEmpty {
+                DisclosureGroup {
+                    ForEach(resolved) { thread in
+                        aiThreadCard(thread: thread, dimmed: true)
+                    }
+                } label: {
+                    Text("\(resolved.count) resolved")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+
+    private func aiThreadCard(thread: ReviewThread, dimmed: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // File path + line
+            if let path = thread.path {
+                HStack(spacing: 2) {
+                    Image(systemName: "doc.text")
+                        .font(.system(size: 9))
+                    Text(thread.line.map { "\(path):\($0)" } ?? path)
+                        .font(.system(size: 10, design: .monospaced))
+                }
+                .foregroundStyle(.secondary)
+            }
+
+            // Comment body
+            if let comment = thread.comments.first {
+                let metadata = AIReviewParser.parseMetadata(author: comment.author, body: comment.body)
+
+                HStack {
+                    Text("@\(comment.author)")
+                        .font(.system(size: 11, weight: .semibold))
+                    Spacer()
+                    // Metadata pills
+                    if let severity = metadata?.severity {
+                        Text(severity)
+                            .font(.system(size: 9, weight: .medium))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(severityColor(severity).opacity(0.15))
+                            .foregroundStyle(severityColor(severity))
+                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                    }
+                    if let confidence = metadata?.confidence {
+                        Text("\(Int(confidence * 100))%")
+                            .font(.system(size: 9, weight: .medium))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(.blue.opacity(0.1))
+                            .foregroundStyle(.blue)
+                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                    }
+                }
+
+                Text(comment.body)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+            }
+
+            // Action buttons
+            if !dimmed {
+                HStack(spacing: 8) {
+                    Button {
+                        fixThread(thread)
+                    } label: {
+                        if fixingThreads.contains(thread.id) {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Label("Fix", systemImage: "wand.and.stars")
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 11))
+                    .disabled(fixingThreads.contains(thread.id))
+
+                    Button {
+                        resolveThread(thread)
+                    } label: {
+                        if resolvingThreads.contains(thread.id) {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Label("Resolve", systemImage: "checkmark.circle")
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 11))
+                    .disabled(resolvingThreads.contains(thread.id))
+                }
+            }
+        }
+        .padding(8)
+        .background(.background)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+        .opacity(dimmed ? 0.5 : 1)
+    }
+
+    private func severityColor(_ severity: String) -> Color {
+        switch severity {
+        case "critical": .red
+        case "warning": .orange
+        case "suggestion": .blue
+        case "nitpick": .gray
+        default: .secondary
+        }
+    }
+
+    private func fixThread(_ thread: ReviewThread) {
+        fixingThreads.insert(thread.id)
+        let settings = AppSettings.load()
+        let repoPath = settings.localRepoPaths[pr.repo] ?? ""
+        var parts: [String] = ["Fix AI review comment on PR #\(pr.number): \(pr.title)"]
+        if let path = thread.path {
+            var loc = "File: \(path)"
+            if let line = thread.line { loc += ":\(line)" }
+            parts.append(loc)
+        }
+        if let comment = thread.comments.first {
+            parts.append("Review comment from @\(comment.author):\n\(String(comment.body.prefix(500)))")
+        }
+        let prompt = parts.joined(separator: "\n")
+        Task {
+            _ = await QuickActionService.runClaudeYolo(repoPath: repoPath, prompt: prompt)
+            fixingThreads.remove(thread.id)
+        }
+    }
+
+    private func resolveThread(_ thread: ReviewThread) {
+        guard let token = authService.token else { return }
+        resolvingThreads.insert(thread.id)
+        Task {
+            let client = GitHubClient(token: token)
+            try? await client.resolveReviewThread(threadId: thread.id)
+            resolvingThreads.remove(thread.id)
         }
     }
 

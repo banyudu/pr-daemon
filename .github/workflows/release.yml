@@ -1,0 +1,288 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+env:
+  SCHEME: PRDaemon
+  PROJECT: PRDaemon.xcodeproj
+  APP_NAME: "PR Daemon"
+  BUNDLE_ID: com.banyudu.pr-daemon
+
+jobs:
+  build-and-release:
+    runs-on: macos-15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Compute Next Version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          CURRENT=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" PRDaemon/Info.plist)
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          NEXT="${MAJOR}.${MINOR}.${PATCH}"
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "Bumping $CURRENT -> $NEXT ($BUMP)"
+
+      - name: Update Version in Info.plist
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" PRDaemon/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" PRDaemon/Info.plist
+
+      - name: Commit Version Bump
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          BRANCH="release/v${VERSION}"
+          git checkout -b "$BRANCH"
+          git add PRDaemon/Info.plist
+          git commit -m "chore: bump version to ${VERSION}"
+          git push origin "$BRANCH"
+
+      - name: Create and Merge Version Bump PR
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          BRANCH="release/v${VERSION}"
+          PR_URL=$(gh pr create \
+            --title "chore: bump version to ${VERSION}" \
+            --body "Automated version bump to ${VERSION}" \
+            --base main \
+            --head "$BRANCH")
+          gh pr merge "$PR_URL" --squash --auto --delete-branch
+
+      - name: Checkout Updated Main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GH_TOKEN }}
+          clean: true
+
+      - name: Wait for PR Merge
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          BRANCH="release/v${VERSION}"
+          for i in $(seq 1 30); do
+            STATE=$(gh pr view "$BRANCH" --json state --jq '.state')
+            if [ "$STATE" = "MERGED" ]; then
+              echo "PR merged"
+              git pull origin main
+              exit 0
+            fi
+            echo "Waiting for PR merge... ($i/30)"
+            sleep 5
+          done
+          echo "PR merge timed out"
+          exit 1
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Import Certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+
+          echo -n "$CERTIFICATE_P12" | base64 --decode -o $CERTIFICATE_PATH
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          security import $CERTIFICATE_PATH -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+      - name: Generate Xcode Project
+        run: xcodegen generate
+
+      - name: Resolve SPM Dependencies
+        run: xcodebuild -resolvePackageDependencies -project $PROJECT -scheme $SCHEME
+
+      - name: Build
+        env:
+          SIGN_IDENTITY: ${{ secrets.CODE_SIGN_IDENTITY }}
+          TEAM_ID: ${{ secrets.DEVELOPMENT_TEAM }}
+        run: |
+          xcodebuild -project $PROJECT \
+            -scheme $SCHEME \
+            -configuration Release \
+            -derivedDataPath DerivedData \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGNING_ALLOWED=YES \
+            PRODUCT_BUNDLE_IDENTIFIER=$BUNDLE_ID
+
+      - name: Create DMG
+        env:
+          SIGN_IDENTITY: ${{ secrets.CODE_SIGN_IDENTITY }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          APP_PATH="DerivedData/Build/Products/Release/${APP_NAME}.app"
+          DMG_NAME="PRDaemon-${VERSION}.dmg"
+
+          mkdir -p dmg-staging
+          cp -R "$APP_PATH" dmg-staging/
+          ln -s /Applications dmg-staging/Applications
+
+          hdiutil create -volname "$APP_NAME" \
+            -srcfolder dmg-staging \
+            -ov -format UDZO \
+            "$DMG_NAME"
+
+          codesign --force --sign "$SIGN_IDENTITY" "$DMG_NAME"
+
+      - name: Notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.DEVELOPMENT_TEAM }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          DMG_NAME="PRDaemon-${VERSION}.dmg"
+
+          xcrun notarytool submit "$DMG_NAME" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          xcrun stapler staple "$DMG_NAME"
+
+      - name: Sign DMG with Sparkle EdDSA Key
+        id: sparkle_sign
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          DMG_NAME="PRDaemon-${VERSION}.dmg"
+          DMG_SIZE=$(stat -f%z "$DMG_NAME")
+
+          SPARKLE_BIN=$(find DerivedData -name "sign_update" -path "*/Sparkle/bin/*" -type f | head -1)
+          if [ -z "$SPARKLE_BIN" ]; then
+            echo "sign_update not found, building from checkout"
+            SPARKLE_BIN=$(find ~/Library/Developer/Xcode/DerivedData -name "sign_update" -type f 2>/dev/null | head -1)
+          fi
+
+          if [ -z "$SPARKLE_BIN" ]; then
+            echo "Downloading Sparkle tools..."
+            curl -sL "https://github.com/sparkle-project/Sparkle/releases/latest/download/Sparkle-2.6.4.tar.xz" -o sparkle.tar.xz
+            tar xf sparkle.tar.xz -C /tmp/sparkle-tools
+            SPARKLE_BIN="/tmp/sparkle-tools/bin/sign_update"
+          fi
+
+          chmod +x "$SPARKLE_BIN"
+          SIGNATURE=$(echo "$SPARKLE_ED_PRIVATE_KEY" | "$SPARKLE_BIN" "$DMG_NAME" --ed-key-file -)
+          ED_SIGNATURE=$(echo "$SIGNATURE" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
+
+          echo "signature=$ED_SIGNATURE" >> "$GITHUB_OUTPUT"
+          echo "size=$DMG_SIZE" >> "$GITHUB_OUTPUT"
+
+      - name: Create ZIP archive
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          APP_PATH="DerivedData/Build/Products/Release/${APP_NAME}.app"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "PRDaemon-${VERSION}.zip"
+
+      - name: Create GitHub Release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: PR Daemon v${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          files: |
+            PRDaemon-${{ steps.version.outputs.version }}.dmg
+            PRDaemon-${{ steps.version.outputs.version }}.zip
+
+      - name: Update Appcast
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          ED_SIGNATURE: ${{ steps.sparkle_sign.outputs.signature }}
+          DMG_SIZE: ${{ steps.sparkle_sign.outputs.size }}
+        run: |
+          DMG_URL="https://github.com/banyudu/pr-daemon/releases/download/v${VERSION}/PRDaemon-${VERSION}.dmg"
+          PUB_DATE=$(date -u +"%a, %d %b %Y %H:%M:%S %z")
+
+          NEW_ITEM="            <item>
+                <title>Version ${VERSION}</title>
+                <sparkle:version>${BUILD_NUMBER}</sparkle:version>
+                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+                <pubDate>${PUB_DATE}</pubDate>
+                <enclosure url=\"${DMG_URL}\" sparkle:edSignature=\"${ED_SIGNATURE}\" length=\"${DMG_SIZE}\" type=\"application/octet-stream\"/>
+            </item>"
+
+          if [ -f appcast.xml ]; then
+            # Insert new item before the closing </channel> tag
+            ESCAPED_ITEM=$(printf '%s\n' "$NEW_ITEM" | sed 's/[&/\]/\\&/g')
+            sed -i '' "s|        </channel>|${NEW_ITEM}\n        </channel>|" appcast.xml
+          else
+            cat > appcast.xml << APPCAST_EOF
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <channel>
+        <title>PR Daemon</title>
+        <link>https://github.com/banyudu/pr-daemon</link>
+        <description>PR Daemon updates</description>
+        <language>en</language>
+${NEW_ITEM}
+        </channel>
+</rss>
+APPCAST_EOF
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add appcast.xml
+          git commit -m "chore: update appcast for v${VERSION}"
+          git push origin main
+
+      - name: Cleanup Keychain
+        if: always()
+        run: security delete-keychain $RUNNER_TEMP/build.keychain-db

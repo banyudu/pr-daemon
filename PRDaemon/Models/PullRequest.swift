@@ -1,5 +1,50 @@
 import Foundation
 
+enum AIReviewer: String, CaseIterable, Codable {
+    case greptile = "greptile-apps"
+    case devin = "devin-ai-integration"
+    case coderabbit = "coderabbitai"
+    case cursorBot = "cursor-bot"
+    case codex = "openai-codex"
+
+    var displayName: String {
+        switch self {
+        case .greptile: "Greptile"
+        case .devin: "Devin"
+        case .coderabbit: "CodeRabbit"
+        case .cursorBot: "Cursor Bot"
+        case .codex: "Codex"
+        }
+    }
+
+    static func isAIReviewer(_ login: String) -> Bool {
+        let known = Set(AppSettings.load().knownAIReviewers)
+        return known.contains(login)
+    }
+}
+
+struct ReviewThread: Identifiable, Codable {
+    let id: String
+    let isResolved: Bool
+    let path: String?
+    let line: Int?
+    let comments: [ReviewComment]
+}
+
+struct ReviewComment: Identifiable, Codable {
+    let id: String
+    let author: String
+    let body: String
+    let createdAt: Date
+    let url: String
+}
+
+struct AIReviewMetadata {
+    let reviewer: AIReviewer?
+    let confidence: Double?
+    let severity: String?
+}
+
 enum CheckStatus: String, Codable, CaseIterable {
     case pending, running, success, failure, neutral
 
@@ -51,6 +96,7 @@ struct PRReview: Identifiable, Codable {
     let author: String
     let state: ReviewState
     let submittedAt: String
+    let body: String?
 }
 
 struct PRComment: Identifiable, Codable {
@@ -79,6 +125,7 @@ struct PullRequest: Identifiable, Codable {
     let latestComments: [PRComment]
     let overallCheckStatus: CheckStatus
     let overallReviewState: ReviewState
+    let reviewThreads: [ReviewThread]
 
     var needsAttention: Bool {
         filteredCheckStatus == .failure ||
@@ -134,12 +181,29 @@ struct PullRequest: Identifiable, Codable {
         if reviews.contains(where: { $0.state == .approved }) { return .approved }
         return overallReviewState
     }
+
+    // MARK: - AI Review helpers
+
+    var unresolvedThreads: [ReviewThread] {
+        let known = AppSettings.load().knownAIReviewers
+        return reviewThreads.filter { thread in
+            !thread.isResolved &&
+            thread.comments.contains { AIReviewer.isAIReviewer($0.author) || known.contains($0.author) }
+        }
+    }
+
+    var unresolvedAIThreadCount: Int { unresolvedThreads.count }
+
+    var aiReviews: [PRReview] {
+        reviews.filter { AIReviewer.isAIReviewer($0.author) }
+    }
 }
 
 struct PRSnapshot {
     let checkStatus: CheckStatus
     let reviewState: ReviewState
     let commentCount: Int
+    let unresolvedThreadIds: Set<String>
 }
 
 struct PRChange {

@@ -22,5 +22,11 @@
     <true/>
     <key>NSUserNotificationAlertStyle</key>
     <string>banner</string>
+    <key>SUFeedURL</key>
+    <string>https://raw.githubusercontent.com/banyudu/pr-daemon/main/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>qpWquzx30n6wGMO2G+NVs/VPvlp5/2Pg+5hyIZaOx7Y=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
 </dict>
 </plist>

@@ -4,11 +4,17 @@ import SwiftUI
 struct PRDaemonApp: App {
     @StateObject private var authService = AuthService()
     @StateObject private var pollingService: PollingService
+    @StateObject private var autoFixService: AutoFixService
+    @StateObject private var updaterService = UpdaterService()
 
     init() {
         let auth = AuthService()
         _authService = StateObject(wrappedValue: auth)
-        _pollingService = StateObject(wrappedValue: PollingService(authService: auth))
+        let polling = PollingService(authService: auth)
+        let autoFix = AutoFixService(authService: auth)
+        polling.autoFixService = autoFix
+        _pollingService = StateObject(wrappedValue: polling)
+        _autoFixService = StateObject(wrappedValue: autoFix)
     }
 
     var body: some Scene {
@@ -16,6 +22,8 @@ struct PRDaemonApp: App {
             ContentView()
                 .environmentObject(authService)
                 .environmentObject(pollingService)
+                .environmentObject(autoFixService)
+                .environmentObject(updaterService)
                 .frame(width: 400, height: 580)
         } label: {
             Label("PR Daemon", systemImage: trayIconName)

@@ -5,6 +5,7 @@ struct SettingsView: View {
     @State private var settings = AppSettings.load()
     @State private var installedTerminals = TerminalApp.detectInstalled()
     @EnvironmentObject var pollingService: PollingService
+    @EnvironmentObject var updaterService: UpdaterService
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,12 +33,22 @@ struct SettingsView: View {
                     pollIntervalSection
                     notificationsSection
                     agentCommandSection
+                    aiReviewersSection
                     terminalSection
                     worktreeSection
                     ignoredReviewersSection
                     watchedReposSection
 
                     Divider()
+
+                    // Check for Updates
+                    Button(action: { updaterService.checkForUpdates() }) {
+                        Text("Check for Updates…")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    .disabled(!updaterService.canCheckForUpdates)
 
                     // Quit
                     Button(action: { NSApplication.shared.terminate(nil) }) {
@@ -147,6 +158,83 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    // MARK: - AI Reviewers
+
+    @State private var aiReviewersExpanded = false
+    @State private var newAIReviewerName = ""
+
+    private var aiReviewersSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: $settings.autoFixAIReviews) {
+                Text("Auto-fix AI reviews")
+                    .font(.system(size: 12))
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+
+            DisclosureGroup(isExpanded: $aiReviewersExpanded) {
+                if settings.knownAIReviewers.isEmpty {
+                    Text("No AI reviewers configured")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 4)
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(settings.knownAIReviewers.sorted(), id: \.self) { name in
+                            HStack {
+                                Text(name)
+                                    .font(.system(size: 12))
+                                    .lineLimit(1)
+                                Spacer()
+                                Button {
+                                    settings.knownAIReviewers.remove(name)
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Remove \(name)")
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                        }
+                    }
+                    .background(.background)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+                }
+
+                HStack(spacing: 4) {
+                    TextField("Add AI reviewer...", text: $newAIReviewerName)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11))
+                        .onSubmit { addAIReviewer() }
+                    Button {
+                        addAIReviewer()
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 14))
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(newAIReviewerName.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                .padding(.top, 4)
+            } label: {
+                Text("AI REVIEWERS")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func addAIReviewer() {
+        let name = newAIReviewerName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        settings.knownAIReviewers.insert(name)
+        newAIReviewerName = ""
     }
 
     // MARK: - Terminal
