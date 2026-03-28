@@ -5,6 +5,7 @@ struct AuthView: View {
     @State private var token = ""
     @State private var isLoading = false
     @State private var ghInstalled = AuthService.isGHInstalled()
+    @State private var ghAuthenticated = AuthService.isGHAuthenticated()
     @State private var isInstallingGH = false
     @State private var installOutput = ""
 
@@ -16,42 +17,58 @@ struct AuthView: View {
                 Text("PR Daemon")
                     .font(.system(size: 16, weight: .semibold))
 
-                Text("Enter a GitHub token with **repo** scope, or authenticate via the `gh` CLI.")
+                Text("Authenticate via the GitHub CLI (`gh`) to get started.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
 
                 if !ghInstalled {
                     ghInstallBanner
+                } else if !ghAuthenticated {
+                    ghLoginBanner
                 }
 
-                SecureField("ghp_xxxxxxxxxxxx", text: $token)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
+                Divider()
 
-                if let error = authService.error {
-                    Text(error)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.red)
-                }
+                DisclosureGroup("Manual token entry") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Enter a GitHub token with **repo** scope.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
 
-                Button(action: submit) {
-                    HStack {
-                        if isLoading {
-                            ProgressView()
-                                .controlSize(.small)
+                        SecureField("ghp_xxxxxxxxxxxx", text: $token)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 12))
+
+                        if let error = authService.error {
+                            Text(error)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.red)
                         }
-                        Text(isLoading ? "Authenticating..." : "Connect")
+
+                        Button(action: submit) {
+                            HStack {
+                                if isLoading {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                                Text(isLoading ? "Authenticating..." : "Connect")
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(token.trimmingCharacters(in: .whitespaces).isEmpty || isLoading)
                     }
-                    .frame(maxWidth: .infinity)
+                    .padding(.top, 4)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(token.trimmingCharacters(in: .whitespaces).isEmpty || isLoading)
+                .font(.system(size: 12))
             }
             .padding(24)
 
             Spacer()
         }
     }
+
+    // MARK: - gh not installed
 
     private var ghInstallBanner: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -63,7 +80,7 @@ struct AuthView: View {
                     .font(.system(size: 12, weight: .medium))
             }
 
-            Text("Install `gh` to auto-authenticate and avoid managing tokens manually.")
+            Text("Install `gh` to authenticate with GitHub.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
@@ -107,8 +124,68 @@ struct AuthView: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(.orange.opacity(0.3)))
     }
 
+    // MARK: - gh installed but not authenticated
+
+    private var ghLoginBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "person.badge.key.fill")
+                    .foregroundStyle(.blue)
+                    .font(.system(size: 12))
+                Text("GitHub CLI not logged in")
+                    .font(.system(size: 12, weight: .medium))
+            }
+
+            Text("`gh` is installed but not authenticated. Run this command in Terminal:")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Text("gh auth login")
+                    .font(.system(size: 11, design: .monospaced))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString("gh auth login", forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.borderless)
+                .help("Copy to clipboard")
+            }
+
+            Button("I've logged in — retry") {
+                refreshGHStatus()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.blue.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.blue.opacity(0.3)))
+    }
+
+    // MARK: - Actions
+
     private enum InstallMethod {
         case brew, script
+    }
+
+    private func refreshGHStatus() {
+        ghInstalled = AuthService.isGHInstalled()
+        ghAuthenticated = AuthService.isGHAuthenticated()
+        if ghAuthenticated {
+            Task {
+                await authService.tryGHCLI()
+            }
+        }
     }
 
     private func installGH(method: InstallMethod) {
@@ -127,8 +204,6 @@ struct AuthView: View {
                 process.executableURL = URL(fileURLWithPath: brewPath)
                 process.arguments = ["install", "gh"]
             case .script:
-                // GitHub's official install script via conda-forge/gh releases
-                // Use the recommended approach: download the macOS pkg
                 process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
                 process.arguments = [
                     "zsh", "-c",
@@ -160,11 +235,7 @@ struct AuthView: View {
                     isInstallingGH = false
                     if process.terminationStatus == 0 {
                         installOutput = "gh installed successfully!"
-                        ghInstalled = AuthService.isGHInstalled()
-                        // Auto-try gh auth after install
-                        Task {
-                            await authService.tryGHCLI()
-                        }
+                        refreshGHStatus()
                     } else {
                         installOutput = output.isEmpty ? "Installation failed" : String(output.suffix(200))
                     }

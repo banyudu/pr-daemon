@@ -14,6 +14,7 @@ build: generate
 	codesign --deep --force --sign - "$(BUILD_DIR)/$(APP_NAME).app"
 
 run: build
+	-pkill -x "$(APP_NAME)" 2>/dev/null || true
 	open "$(BUILD_DIR)/$(APP_NAME).app"
 
 clean:

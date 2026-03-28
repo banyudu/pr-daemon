@@ -7,6 +7,7 @@ struct PRDetailView: View {
     @State private var resolvingThreads: Set<String> = []
     @State private var fixingThreads: Set<String> = []
     @State private var settings = AppSettings.load()
+    @State private var pendingIgnoreReviewer: String?
     @EnvironmentObject var authService: AuthService
 
     var body: some View {
@@ -59,8 +60,12 @@ struct PRDetailView: View {
 
     private var titleSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("#\(pr.number) \(pr.title)")
+            Text(verbatim: "#\(pr.number) \(pr.title)")
                 .font(.system(size: 13, weight: .semibold))
+                .onTapGesture { openURL(pr.url) }
+                .onHover { inside in
+                    if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                }
 
             HStack(spacing: 4) {
                 Text(pr.branch)
@@ -69,6 +74,10 @@ struct PRDetailView: View {
                     .padding(.vertical, 2)
                     .background(.quaternary)
                     .clipShape(RoundedRectangle(cornerRadius: 3))
+                    .onTapGesture { openURL("\(pr.repoURL)/tree/\(pr.branch)") }
+                    .onHover { inside in
+                        if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
 
                 Image(systemName: "arrow.right")
                     .font(.system(size: 8))
@@ -80,6 +89,10 @@ struct PRDetailView: View {
                     .padding(.vertical, 2)
                     .background(.quaternary)
                     .clipShape(RoundedRectangle(cornerRadius: 3))
+                    .onTapGesture { openURL("\(pr.repoURL)/tree/\(pr.baseBranch)") }
+                    .onHover { inside in
+                        if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
 
                 if pr.isDraft {
                     Text("Draft")
@@ -109,35 +122,31 @@ struct PRDetailView: View {
     private var checksSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionHeader("Checks")
-            VStack(spacing: 0) {
+            FlowLayout(spacing: 4) {
                 ForEach(pr.filteredChecks) { check in
-                    HStack {
-                        Text(check.name)
-                            .font(.system(size: 12))
-                            .lineLimit(1)
-                        Spacer()
-                        StatusBadge(status: check.status)
-                        Button {
-                            ignoreReviewer(check.name)
-                        } label: {
-                            Image(systemName: "eye.slash")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.tertiary)
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Ignore \(check.name)")
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-
-                    if check.id != pr.filteredChecks.last?.id {
-                        Divider().padding(.leading, 8)
-                    }
+                    checkPill(check)
                 }
             }
-            .background(.background)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+        }
+    }
+
+    private func checkPill(_ check: PRCheck) -> some View {
+        HStack(spacing: 3) {
+            StatusDot(status: check.status)
+            Text(check.name)
+                .font(.system(size: 10))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(.background)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(.quaternary))
+        .help("Right-click to ignore")
+        .contextMenu {
+            Button("Ignore \(check.name)") {
+                pendingIgnoreReviewer = check.name
+            }
         }
     }
 
@@ -151,15 +160,7 @@ struct PRDetailView: View {
                             .font(.system(size: 12))
                         Spacer()
                         ReviewBadge(state: review.state)
-                        Button {
-                            ignoreReviewer(review.author)
-                        } label: {
-                            Image(systemName: "eye.slash")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.tertiary)
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Ignore @\(review.author)")
+                        ignoreButton(for: review.author)
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
@@ -337,17 +338,9 @@ struct PRDetailView: View {
                     HStack {
                         Text("@\(comment.author)")
                             .font(.system(size: 11, weight: .semibold))
-                        Button {
-                            ignoreReviewer(comment.author)
-                        } label: {
-                            Image(systemName: "eye.slash")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.tertiary)
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Ignore @\(comment.author)")
+                        ignoreButton(for: comment.author)
                         Spacer()
-                        Text(comment.createdAt, style: .relative)
+                        Text(comment.createdAt.shortRelative)
                             .font(.system(size: 10))
                             .foregroundStyle(.tertiary)
                     }
@@ -400,9 +393,42 @@ struct PRDetailView: View {
             .textCase(.uppercase)
     }
 
-    private func ignoreReviewer(_ name: String) {
-        settings.ignoredReviewers.insert(name)
-        settings.save()
+    private func openURL(_ urlString: String) {
+        if let url = URL(string: urlString) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @ViewBuilder
+    private func ignoreButton(for name: String) -> some View {
+        if pendingIgnoreReviewer == name {
+            HStack(spacing: 4) {
+                Button("Ignore") {
+                    settings.ignoredReviewers.insert(name)
+                    settings.save()
+                    pendingIgnoreReviewer = nil
+                }
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.red)
+                .buttonStyle(.borderless)
+
+                Button("Cancel") {
+                    pendingIgnoreReviewer = nil
+                }
+                .font(.system(size: 9))
+                .buttonStyle(.borderless)
+            }
+        } else {
+            Button {
+                pendingIgnoreReviewer = name
+            } label: {
+                Image(systemName: "eye.slash")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.borderless)
+            .help("Ignore @\(name)")
+        }
     }
 
     private func openTerminal() {

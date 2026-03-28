@@ -75,7 +75,7 @@ struct MainView: View {
             Spacer()
 
             if let lastFetched = pollingService.lastFetched {
-                Text(lastFetched, style: .relative)
+                Text(lastFetched.shortRelative)
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
             }
@@ -170,7 +170,21 @@ struct MainView: View {
                         ForEach(filteredPRs) { pr in
                             PRRowView(pr: pr)
                                 .contentShape(Rectangle())
-                                .onTapGesture { selectedPR = pr }
+                                .onTapGesture {
+                                    if let url = URL(string: pr.url) {
+                                        NSWorkspace.shared.open(url)
+                                    }
+                                }
+                                .contextMenu {
+                                    Button("Open in GitHub") {
+                                        if let url = URL(string: pr.url) {
+                                            NSWorkspace.shared.open(url)
+                                        }
+                                    }
+                                    Button("View Details") {
+                                        selectedPR = pr
+                                    }
+                                }
                             Divider().padding(.leading, 12)
                         }
                     }

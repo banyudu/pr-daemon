@@ -1,4 +1,15 @@
 import SwiftUI
+import UserNotifications
+
+class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
+    }
+}
 
 @main
 struct PRDaemonApp: App {
@@ -6,6 +17,7 @@ struct PRDaemonApp: App {
     @StateObject private var pollingService: PollingService
     @StateObject private var autoFixService: AutoFixService
     @StateObject private var updaterService = UpdaterService()
+    private let notificationDelegate = NotificationDelegate()
 
     init() {
         let auth = AuthService()
@@ -15,6 +27,7 @@ struct PRDaemonApp: App {
         polling.autoFixService = autoFix
         _pollingService = StateObject(wrappedValue: polling)
         _autoFixService = StateObject(wrappedValue: autoFix)
+        UNUserNotificationCenter.current().delegate = notificationDelegate
     }
 
     var body: some Scene {
